@@ -414,9 +414,12 @@ async function doVerify() {
   setStatus("set + verified", "ok");
 }
 async function doSave() {
+  // the visible table is the source of truth: apply it first, so Save
+  // can never persist a stale device state behind the user's edits
+  await doSet();
   expectAck(await xact(CMD.SAVE), CMD.SAVE, "SAVE");
   setDirty(false);
-  log("info", "✔ SAVE: persisted to NVS");
+  log("info", "✔ SAVE: table applied + persisted to NVS");
   setStatus("saved to NVS", "ok");
 }
 async function doRevert() {
