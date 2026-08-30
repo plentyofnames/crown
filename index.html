@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<!-- Crown — Web MIDI routing editor for the Escapement MIDI router.
+     https://github.com/plentyofnames/crown -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crown · Escapement</title>
+<style>
+  :root {
+    --bg: #14171c; --panel: #1c2129; --panel2: #232a35; --line: #313b49;
+    --fg: #cfd8e3; --dim: #7a8798; --acc: #4fa3ff; --ok: #4fd487;
+    --warn: #ffb64f; --err: #ff6b6b; --chip: #2a3340; --chip-on: #1d5fa5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 13px/1.45 "SF Mono", ui-monospace, Menlo, monospace; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+           background: var(--panel); border-bottom: 1px solid var(--line);
+           position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; color: #fff;
+              letter-spacing: .5px; }
+  select, button, input {
+    background: var(--panel2); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 8px; font: inherit; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--acc); }
+  button.primary { background: #1d5fa5; border-color: #1d5fa5; color: #fff; }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+  button:disabled { opacity: .4; cursor: default; }
+  #status { margin-left: auto; color: var(--dim); }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); }
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 14px;
+         padding: 14px 16px; align-items: start; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+         margin-bottom: 10px; }
+  .bar .sep { width: 1px; align-self: stretch; background: var(--line);
+              margin: 0 4px; }
+  #dirty { color: var(--warn); display: none; }
+  .rule { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .rule .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+               margin: 3px 0; }
+  .rule .idx { color: var(--dim); width: 26px; text-align: right; }
+  .rule .arrow { color: var(--dim); }
+  .lbl { color: var(--dim); font-size: 11px; width: 26px; text-align: right; }
+  .chips { display: flex; gap: 3px; flex-wrap: wrap; }
+  .chip { background: var(--chip); border: 1px solid transparent; color: var(--dim);
+          border-radius: 4px; padding: 2px 6px; font-size: 11px; cursor: pointer;
+          user-select: none; }
+  .chip.on { background: var(--chip-on); color: #fff; }
+  .chip.mini { padding: 2px 4px; min-width: 20px; text-align: center; }
+  .tools { margin-left: auto; display: flex; gap: 4px; }
+  .tools button { padding: 2px 7px; font-size: 11px; }
+  .side { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; padding: 10px 12px; }
+  .side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+             color: var(--dim); margin: 0 0 8px; }
+  #log { height: 380px; overflow-y: auto; white-space: pre-wrap;
+         word-break: break-all; font-size: 11px; color: var(--dim); }
+  #log .tx { color: var(--acc); } #log .rx { color: var(--ok); }
+  #log .err { color: var(--err); } #log .info { color: var(--fg); }
+  #tests div { padding: 1px 0; }
+  #tests .pass::before { content: "✔ "; color: var(--ok); }
+  #tests .fail::before { content: "✘ "; color: var(--err); }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ESCAPEMENT</h1>
+  <select id="outSel" title="MIDI out (to device)"></select>
+  <select id="inSel" title="MIDI in (from device)"></select>
+  <button id="helloBtn">Hello</button>
+  <span id="fwInfo" style="color:var(--dim)"></span>
+  <span id="status">no MIDI access</span>
+</header>
+<main>
+<section>
+  <div class="bar">
+    <button id="getBtn">Get</button>
+    <button id="setBtn" class="primary">Set</button>
+    <button id="verifyBtn">Set + Verify</button>
+    <span class="sep"></span>
+    <button id="saveBtn">Save → NVS</button>
+    <button id="revertBtn">Revert</button>
+    <span id="dirty">RAM ≠ NVS (unsaved)</span>
+    <span class="sep"></span>
+    <button id="addBtn">+ Rule</button>
+    <button id="studioBtn">Load studio default</button>
+    <button id="exportBtn">Export JSON</button>
+    <button id="importBtn">Import JSON</button>
+    <input type="file" id="importFile" accept=".json" style="display:none">
+  </div>
+  <div id="rules"></div>
+  <div class="hint">Rules are evaluated top-down, first match wins per
+    destination. Channels apply to voice classes, the mfr filter to SYSEX.</div>
+</section>
+<aside>
+  <div class="side">
+    <h2>Protocol tests <button id="testBtn" style="float:right">Run</button></h2>
+    <div id="tests"></div>
+  </div>
+  <div class="side" style="margin-top:12px">
+    <h2>Log <button id="clearLog" style="float:right">Clear</button></h2>
+    <div id="log"></div>
+  </div>
+</aside>
+</main>
+<script>
+"use strict";
+// ---------------------------------------------------------------- constants
+const PFX = [0xF0, 0x7D, 0x45, 0x53, 0x43];
+const CMD = { HELLO:0x01, GET:0x10, SET:0x11, SAVE:0x12, REVERT:0x13 };
+const RSP = { ACK:0x40, HELLO:0x41, NACK:0x4F, GET:0x50 };
+const ERRNAME = { 1:"bad length", 2:"bad CRC", 3:"bad magic/format",
+                  4:"too many rules", 5:"bad rule field", 6:"busy",
+                  7:"unknown cmd" };
+const SRCS  = ["IN 1","IN 2","IN 3","IN 4","USB","BLE","RTP"];
+const DESTS = ["OUT 1","OUT 2","OUT 3","OUT 4","OUT 5","OUT 6","OUT 7","OUT 8",
+               "USB","BLE","RTP"];
+const CLS = [["NOTE",0x0001],["CC",0x0002],["PROG",0x0004],["PRESS",0x0008],
+             ["BEND",0x0010],["SYSEX",0x0020],["CLK",0x0040],["TRAN",0x0080],
+             ["SPP",0x0100],["SYSC",0x0200],["SENS",0x0400],["RST",0x0800]];
+const VOICE = 0x001F, MAX_RULES = 64;
+
+const STUDIO = (() => {                 // brief §6 — the live studio table
+  const tap  = s => ({src:s, dest:0x0100, classes:0x023F, chan:0xFFFF,
+                      sxMode:0, sxId:0, xform:0, xparam:0});
+  const host = s => [
+    {src:s, dest:0x0001, classes:0x001F, chan:0x0E00, sxMode:0, sxId:0, xform:0, xparam:0},
+    {src:s, dest:0x0004, classes:0x001F, chan:0x8000, sxMode:0, sxId:0, xform:0, xparam:0},
+    {src:s, dest:0x0005, classes:0x09C0, chan:0x0000, sxMode:0, sxId:0, xform:0, xparam:0},
+    {src:s, dest:0x0004, classes:0x0020, chan:0x0000, sxMode:1, sxId:0x06, xform:0, xparam:0},
+  ];
+  return [tap(0), tap(1), tap(2), tap(3), ...host(4), ...host(5), ...host(6)];
+})();
+
+// ------------------------------------------------------------------- codec
+function crc16(d) {
+  let c = 0xFFFF;
+  for (const b of d) {
+    c ^= b << 8;
+    for (let i = 0; i < 8; i++)
+      c = (c & 0x8000) ? ((c << 1) ^ 0x1021) & 0xFFFF : (c << 1) & 0xFFFF;
+  }
+  return c;
+}
+const nibblize = d => d.flatMap ? d.flatMap(b => [(b >> 4) & 15, b & 15])
+                                : [...d].flatMap(b => [(b >> 4) & 15, b & 15]);
+function denibblize(n) {
+  if (n.length & 1) throw new Error("odd nibble count");
+  const out = new Uint8Array(n.length / 2);
+  for (let i = 0; i < out.length; i++)
+    out[i] = ((n[2 * i] & 15) << 4) | (n[2 * i + 1] & 15);
+  return out;
+}
+function compile(rs) {
+  const blob = new Uint8Array(8 + rs.length * 16);
+  blob.set([0x45, 0x53, 0x43, 1, rs.length, 0, 0, 0]);
+  const dv = new DataView(blob.buffer);
+  rs.forEach((r, i) => {
+    const o = 8 + i * 16;
+    dv.setUint32(o, r.dest, true);
+    dv.setUint16(o + 4, r.classes, true);
+    dv.setUint16(o + 6, r.chan, true);
+    blob[o + 8] = r.src; blob[o + 9] = r.sxMode; blob[o + 10] = r.sxId;
+    blob[o + 11] = r.xform; blob[o + 12] = r.xparam;
+  });
+  return blob;
+}
+function decompile(blob) {
+  if (blob.length < 8 || blob[0] !== 0x45 || blob[1] !== 0x53 ||
+      blob[2] !== 0x43) throw new Error("bad magic");
+  if (blob[3] !== 1) throw new Error("unknown format " + blob[3]);
+  const n = blob[4];
+  if (blob.length !== 8 + 16 * n) throw new Error("length mismatch");
+  const dv = new DataView(blob.buffer, blob.byteOffset);
+  return Array.from({length: n}, (_, i) => {
+    const o = 8 + i * 16;
+    return { dest: dv.getUint32(o, true), classes: dv.getUint16(o + 4, true),
+             chan: dv.getUint16(o + 6, true), src: blob[o + 8],
+             sxMode: blob[o + 9], sxId: blob[o + 10],
+             xform: blob[o + 11], xparam: blob[o + 12] };
+  });
+}
+const withCrc = blob => {
+  const c = crc16(blob);
+  return [...blob, (c >> 8) & 0xFF, c & 0xFF];
+};
+
+// -------------------------------------------------------------------- MIDI
+let midi = null, outPort = null, inPort = null, pending = null;
+const $ = id => document.getElementById(id);
+const hex = a => [...a].map(b => b.toString(16).padStart(2, "0")).join(" ");
+function log(cls, text) {
+  const d = document.createElement("div");
+  d.className = cls; d.textContent = text;
+  $("log").appendChild(d); $("log").scrollTop = 1e9;
+}
+const logMsg = (cls, tag, a) => log(cls, `${tag} (${a.length}) ` +
+  (a.length > 48 ? hex(a.slice(0, 48)) + " …" : hex(a)));
+
+function setStatus(text, cls) {
+  $("status").textContent = text; $("status").className = cls || "";
+}
+function refreshPorts() {
+  for (const [sel, ports, cur] of [[$("outSel"), midi.outputs, outPort],
+                                   [$("inSel"), midi.inputs, inPort]]) {
+    sel.innerHTML = "";
+    for (const p of ports.values()) {
+      const o = document.createElement("option");
+      o.value = p.id; o.textContent = (sel === $("outSel") ? "→ " : "← ") + p.name;
+      if (p.name === "Escapement USB" && !cur) o.selected = true;
+      else if (cur && p.id === cur.id) o.selected = true;
+      sel.appendChild(o);
+    }
+  }
+  bindPorts();
+}
+function bindPorts() {
+  outPort = midi.outputs.get($("outSel").value) || null;
+  const newIn = midi.inputs.get($("inSel").value) || null;
+  if (inPort && inPort !== newIn) inPort.onmidimessage = null;
+  inPort = newIn;
+  if (inPort) inPort.onmidimessage = onMidi;
+  setStatus(outPort && inPort ? `connected: ${outPort.name}` : "select ports",
+            outPort && inPort ? "ok" : "");
+}
+function onMidi(ev) {
+  const d = ev.data;
+  if (d[0] !== 0xF0) return;
+  if (!PFX.every((b, i) => d[i] === b)) return;   // not ours
+  logMsg("rx", "RX", d);
+  const cmd = d[5], payload = [...d.slice(6, d.length - 1)];
+  if (pending) { const p = pending; pending = null; clearTimeout(p.timer);
+                 p.resolve({cmd, payload}); }
+  else log("info", `unsolicited reply 0x${cmd.toString(16)}`);
+}
+function xact(cmd, payload = [], timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    if (!outPort || !inPort) return reject(new Error("no ports"));
+    if (pending) return reject(new Error("transaction in flight"));
+    const msg = [...PFX, cmd, ...payload, 0xF7];
+    logMsg("tx", "TX", msg);
+    pending = { resolve, timer: setTimeout(() => {
+      pending = null; reject(new Error("timeout"));
+    }, timeoutMs) };
+    outPort.send(msg);
+  });
+}
+// send raw bytes (malformed-on-purpose test frames included)
+function xactRaw(bytes, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    if (pending) return reject(new Error("transaction in flight"));
+    logMsg("tx", "TX", bytes);
+    pending = { resolve, timer: setTimeout(() => {
+      pending = null; reject(new Error("timeout"));
+    }, timeoutMs) };
+    outPort.send(bytes);
+  });
+}
+
+// --------------------------------------------------------------- rule UI
+let rules = STUDIO.map(r => ({...r}));
+function chip(text, on, cb, mini) {
+  const c = document.createElement("span");
+  c.className = "chip" + (mini ? " mini" : "") + (on ? " on" : "");
+  c.textContent = text; c.onclick = cb;
+  return c;
+}
+function render() {
+  const host = $("rules"); host.innerHTML = "";
+  rules.forEach((r, i) => {
+    const card = document.createElement("div"); card.className = "rule";
+    const row1 = document.createElement("div"); row1.className = "row";
+    const idx = document.createElement("span");
+    idx.className = "idx"; idx.textContent = (i + 1) + ".";
+    row1.appendChild(idx);
+    const srcSel = document.createElement("select");
+    SRCS.forEach((s, v) => srcSel.add(new Option(s, v)));
+    srcSel.value = r.src;
+    srcSel.onchange = () => { r.src = +srcSel.value; };
+    row1.appendChild(srcSel);
+    const arrow = document.createElement("span");
+    arrow.className = "arrow"; arrow.textContent = "→";
+    row1.appendChild(arrow);
+    const dchips = document.createElement("span"); dchips.className = "chips";
+    DESTS.forEach((d, b) => dchips.appendChild(
+      chip(d, r.dest & (1 << b), () => { r.dest ^= (1 << b); render(); })));
+    row1.appendChild(dchips);
+    const tools = document.createElement("span"); tools.className = "tools";
+    for (const [t, fn] of [["↑", () => { if (i) { [rules[i-1], rules[i]] =
+                             [rules[i], rules[i-1]]; render(); } }],
+                           ["↓", () => { if (i < rules.length - 1) {
+                             [rules[i+1], rules[i]] = [rules[i], rules[i+1]];
+                             render(); } }],
+                           ["✕", () => { rules.splice(i, 1); render(); }]]) {
+      const b = document.createElement("button");
+      b.textContent = t; b.onclick = fn;
+      if (t === "✕") b.className = "danger";
+      tools.appendChild(b);
+    }
+    row1.appendChild(tools);
+    card.appendChild(row1);
+
+    const row2 = document.createElement("div"); row2.className = "row";
+    const l2 = document.createElement("span"); l2.className = "lbl";
+    l2.textContent = "cls"; row2.appendChild(l2);
+    const cchips = document.createElement("span"); cchips.className = "chips";
+    CLS.forEach(([name, bit]) => cchips.appendChild(
+      chip(name, r.classes & bit, () => { r.classes ^= bit; render(); })));
+    row2.appendChild(cchips);
+    card.appendChild(row2);
+
+    if (r.classes & VOICE) {
+      const row3 = document.createElement("div"); row3.className = "row";
+      const l3 = document.createElement("span"); l3.className = "lbl";
+      l3.textContent = "ch"; row3.appendChild(l3);
+      const ch = document.createElement("span"); ch.className = "chips";
+      for (let b = 0; b < 16; b++) ch.appendChild(
+        chip(b + 1, r.chan & (1 << b), () => { r.chan ^= (1 << b); render(); },
+             true));
+      ch.appendChild(chip("all", false, () => { r.chan = 0xFFFF; render(); }, true));
+      ch.appendChild(chip("none", false, () => { r.chan = 0; render(); }, true));
+      row3.appendChild(ch);
+      const xSel = document.createElement("select");
+      xSel.add(new Option("no transform", 0));
+      for (let c = 0; c < 16; c++)
+        xSel.add(new Option("force ch " + (c + 1), 0x100 | c));
+      xSel.value = r.xform ? (0x100 | r.xparam) : 0;
+      xSel.onchange = () => { const v = +xSel.value;
+        r.xform = v ? 1 : 0; r.xparam = v ? (v & 15) : 0; };
+      row3.appendChild(xSel);
+      card.appendChild(row3);
+    }
+    if (r.classes & 0x0020) {
+      const row4 = document.createElement("div"); row4.className = "row";
+      const l4 = document.createElement("span"); l4.className = "lbl";
+      l4.textContent = "sx"; row4.appendChild(l4);
+      const mSel = document.createElement("select");
+      mSel.add(new Option("all sysex", 0));
+      mSel.add(new Option("mfr id =", 1));
+      mSel.value = r.sxMode;
+      mSel.onchange = () => { r.sxMode = +mSel.value; render(); };
+      row4.appendChild(mSel);
+      if (r.sxMode === 1) {
+        const id = document.createElement("input");
+        id.size = 4; id.value = "0x" + r.sxId.toString(16).padStart(2, "0");
+        id.onchange = () => { const v = parseInt(id.value, 16);
+          if (v >= 0 && v <= 127) r.sxId = v; render(); };
+        row4.appendChild(id);
+        const name = document.createElement("span");
+        name.style.color = "var(--dim)";
+        name.textContent = ({6: "(Lexicon)", 0x7e: "(universal non-RT)",
+                             0x7f: "(universal RT)", 0x7d: "(non-commercial)"}
+                            )[r.sxId] || "";
+        row4.appendChild(name);
+      }
+      card.appendChild(row4);
+    }
+    host.appendChild(card);
+  });
+  $("addBtn").disabled = rules.length >= MAX_RULES;
+}
+
+// ------------------------------------------------------------- operations
+function setDirty(d) { $("dirty").style.display = d ? "inline" : "none"; }
+async function guarded(fn) {
+  try { await fn(); }
+  catch (e) { log("err", "✘ " + e.message); setStatus(e.message, "err"); }
+}
+const expectAck = (r, cmd, what) => {
+  if (r.cmd === RSP.ACK && r.payload[0] === cmd) return;
+  if (r.cmd === RSP.NACK) throw new Error(
+    `${what}: NACK ${ERRNAME[r.payload[1]] || r.payload[1]}`);
+  throw new Error(`${what}: unexpected reply 0x${r.cmd.toString(16)}`);
+};
+
+async function doHello() {
+  const r = await xact(CMD.HELLO);
+  if (r.cmd !== RSP.HELLO) throw new Error("bad HELLO reply");
+  const [maj, min, fmt, max] = r.payload;
+  $("fwInfo").textContent = `fw ${maj}.${min} · format ${fmt} · ${max} rules`;
+  setStatus("device ok", "ok");
+}
+async function doGet() {
+  const r = await xact(CMD.GET);
+  if (r.cmd !== RSP.GET) throw new Error("bad GET reply");
+  const raw = denibblize(r.payload);
+  const blob = raw.slice(0, -2);
+  const want = (raw[raw.length - 2] << 8) | raw[raw.length - 1];
+  if (crc16(blob) !== want) throw new Error("GET reply CRC mismatch");
+  rules = decompile(blob); render();
+  log("info", `✔ GET: ${rules.length} rules`);
+  setStatus(`loaded ${rules.length} rules from device`, "ok");
+  return blob;
+}
+async function doSet() {
+  const payload = nibblize(withCrc(compile(rules)));
+  expectAck(await xact(CMD.SET, payload), CMD.SET, "SET");
+  setDirty(true);
+  log("info", `✔ SET: ${rules.length} rules live (RAM)`);
+  setStatus("config applied (not saved)", "ok");
+}
+async function doVerify() {
+  const sent = compile(rules);
+  await doSet();
+  const got = await doGet();
+  const same = sent.length === got.length && sent.every((b, i) => b === got[i]);
+  if (!same) throw new Error("verify: readback differs!");
+  log("info", "✔ verify: readback identical");
+  setStatus("set + verified", "ok");
+}
+async function doSave() {
+  expectAck(await xact(CMD.SAVE), CMD.SAVE, "SAVE");
+  setDirty(false);
+  log("info", "✔ SAVE: persisted to NVS");
+  setStatus("saved to NVS", "ok");
+}
+async function doRevert() {
+  expectAck(await xact(CMD.REVERT), CMD.REVERT, "REVERT");
+  setDirty(false);
+  await doGet();
+  setStatus("reverted to NVS state", "ok");
+}
+
+// ---------------------------------------------------------- protocol tests
+async function runTests() {
+  const T = $("tests"); T.innerHTML = "";
+  const res = (name, ok, note) => {
+    const d = document.createElement("div");
+    d.className = ok ? "pass" : "fail";
+    d.textContent = name + (note ? ` — ${note}` : "");
+    T.appendChild(d);
+    return ok;
+  };
+  const expectNack = async (name, bytes, err) => {
+    try {
+      const r = await xactRaw(bytes);
+      res(name, r.cmd === RSP.NACK && r.payload[1] === err,
+          r.cmd === RSP.NACK ? ERRNAME[r.payload[1]]
+                             : "reply 0x" + r.cmd.toString(16));
+    } catch (e) { res(name, false, e.message); }
+  };
+  const frame = (cmd, payload) => [...PFX, cmd, ...payload, 0xF7];
+  let before = null;
+  try { before = await (async () => { const r = await xact(CMD.GET);
+        return denibblize(r.payload).slice(0, -2); })(); } catch (e) {}
+  try {
+    const r = await xact(CMD.HELLO);
+    res("HELLO", r.cmd === RSP.HELLO &&
+        r.payload.join() === [0, 3, 1, 64].join(),
+        r.payload.map(b => b.toString(16)).join(" "));
+  } catch (e) { res("HELLO", false, e.message); }
+  try {
+    const sent = compile(STUDIO);
+    const r = await xact(CMD.SET, nibblize(withCrc(sent)));
+    expectAck(r, CMD.SET, "SET");
+    const got = await (async () => { const g = await xact(CMD.GET);
+      return denibblize(g.payload).slice(0, -2); })();
+    res("SET → GET round-trip", sent.length === got.length &&
+        sent.every((b, i) => b === got[i]));
+  } catch (e) { res("SET → GET round-trip", false, e.message); }
+
+  const good = compile(STUDIO);
+  const badCrc = withCrc(good); badCrc[badCrc.length - 1] ^= 0x01;
+  await expectNack("bad CRC → 0x02", frame(CMD.SET, nibblize(badCrc)), 2);
+  const badFmt = Uint8Array.from(good); badFmt[3] = 2;
+  await expectNack("bad format → 0x03", frame(CMD.SET, nibblize(withCrc(badFmt))), 3);
+  const many = new Uint8Array(8 + 65 * 16);
+  many.set([0x45, 0x53, 0x43, 1, 65, 0, 0, 0]);
+  await expectNack("65 rules → 0x04", frame(CMD.SET, nibblize(withCrc(many))), 4);
+  const badSrc = Uint8Array.from(good); badSrc[8 + 8] = 7;  // trunk-reserved
+  await expectNack("src 7 (trunk) → 0x05", frame(CMD.SET, nibblize(withCrc(badSrc))), 5);
+  const odd = nibblize(withCrc(good)).slice(0, -1);
+  await expectNack("odd nibbles → 0x01", frame(CMD.SET, odd), 1);
+  await expectNack("unknown cmd → 0x07", frame(0x20, []), 7);
+  try {
+    const r = await xact(CMD.REVERT);
+    expectAck(r, CMD.REVERT, "REVERT");
+    res("REVERT", true);
+  } catch (e) { res("REVERT", false, e.message); }
+  if (before) {                       // put the pre-test RAM config back
+    try {
+      const r = await xact(CMD.SET, nibblize(withCrc(before)));
+      expectAck(r, CMD.SET, "restore SET");
+      const g = await xact(CMD.GET);
+      const now = denibblize(g.payload).slice(0, -2);
+      res("pre-test config restored", now.length === before.length &&
+          now.every((b, i) => b === before[i]));
+    } catch (e) { res("pre-test config restored", false, e.message); }
+  }
+  log("info", "protocol tests done");
+}
+
+// ------------------------------------------------------------------ wiring
+$("helloBtn").onclick = () => guarded(doHello);
+$("getBtn").onclick = () => guarded(doGet);
+$("setBtn").onclick = () => guarded(doSet);
+$("verifyBtn").onclick = () => guarded(doVerify);
+$("saveBtn").onclick = () => guarded(doSave);
+$("revertBtn").onclick = () => guarded(doRevert);
+$("testBtn").onclick = () => guarded(runTests);
+$("addBtn").onclick = () => { rules.push({src: 0, dest: 0, classes: 0,
+  chan: 0xFFFF, sxMode: 0, sxId: 0, xform: 0, xparam: 0}); render(); };
+$("studioBtn").onclick = () => { rules = STUDIO.map(r => ({...r})); render(); };
+$("exportBtn").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(rules, null, 2)],
+                                        {type: "application/json"}));
+  a.download = "escapement-config.json"; a.click();
+};
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = async ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    const rs = JSON.parse(await f.text());
+    if (!Array.isArray(rs) || rs.length > MAX_RULES) throw new Error("bad file");
+    rules = rs.map(r => ({src: r.src|0, dest: r.dest>>>0, classes: r.classes|0,
+      chan: r.chan|0, sxMode: r.sxMode|0, sxId: r.sxId|0,
+      xform: r.xform|0, xparam: r.xparam|0}));
+    render();
+  } catch (e) { log("err", "import: " + e.message); }
+  ev.target.value = "";
+};
+$("clearLog").onclick = () => { $("log").innerHTML = ""; };
+$("outSel").onchange = $("inSel").onchange = bindPorts;
+
+render();
+if (!navigator.requestMIDIAccess) {
+  setStatus("Web MIDI unavailable — use Chrome", "err");
+} else {
+  navigator.requestMIDIAccess({sysex: true}).then(m => {
+    midi = m; midi.onstatechange = refreshPorts; refreshPorts();
+  }, () => setStatus("MIDI permission denied", "err"));
+}
+</script>
+</body>
+</html>
