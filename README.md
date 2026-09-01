@@ -33,6 +33,14 @@ and the box reroutes live; **Save** persists to flash.
   in the page.
 - No build step, no dependencies — one static page.
 
+## Trunk
+
+With a trunk-linked second unit (firmware capability bit in HELLO),
+Crown shows the link state, marks the trunk-claimed jacks as
+unassignable (⛔ / struck through), and the **Trunk…** button sets
+which jack pair each unit uses (stored to both units over the link;
+takes effect after rebooting both and moving the cables).
+
 ## Known issue: Chrome 152
 
 Chrome 152's macOS build corrupts *received* Web MIDI sysex (a
