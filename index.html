@@ -110,6 +110,7 @@
 </main>
 <script>
 "use strict";
+const BUILD = "2026-09-01d (chrome-152 shim + priming)";
 // ---------------------------------------------------------------- constants
 const PFX = [0xF0, 0x7D, 0x45, 0x53, 0x43];
 const CMD = { HELLO:0x01, GET:0x10, SET:0x11, SAVE:0x12, REVERT:0x13 };
@@ -602,6 +603,7 @@ if (!navigator.requestMIDIAccess) {
 } else {
   navigator.requestMIDIAccess({sysex: true}).then(m => {
     midi = m;
+    log("info", `crown build ${BUILD}`);
     log("info", `sysexEnabled=${m.sysexEnabled}`);
     if (navigator.permissions) {
       navigator.permissions.query({ name: "midi", sysex: true }).then(
