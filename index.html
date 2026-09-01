@@ -250,6 +250,28 @@ function bindPorts() {
   setStatus(outPort && inPort ? `connected: ${outPort.name}` : "select ports",
             outPort && inPort ? "ok" : "");
 }
+// --- Chrome 152 workaround -------------------------------------------
+// Chrome 152's broken MIDI1->UMP/SysEx7 conversion (fixed in 153) strips
+// F0/F7 from received sysex and delivers the payload as fake 3-byte
+// channel messages under a stale running status. Our replies always
+// start 7D 45 53 43, so the fragment stream is unmistakable: detect it,
+// reassemble, and hand the restored sysex to the normal handler.
+let frag = null, fragTimer = null, warned152 = false;
+function fragDone() {
+  const f = frag; frag = null;
+  if (f && f.length >= 6 && f[2] === 0x53 && f[3] === 0x43) {
+    if (!warned152) {
+      warned152 = true;
+      log("err", "Chrome 152 sysex bug detected — reassembling replies. " +
+                 "Update to Chrome 153 for the real fix.");
+    }
+    onMidi({ data: new Uint8Array([0xF0, ...f, 0xF7]) });
+  }
+}
+function isFragShape(d) {
+  return d.length === 3 && d[0] >= 0x80 && d[0] <= 0xEF &&
+         (d[0] & 0xF0) !== 0xC0 && (d[0] & 0xF0) !== 0xD0;
+}
 let rxCount = 0;
 function onMidi(ev) {
   const d = ev.data;
@@ -257,6 +279,19 @@ function onMidi(ev) {
     rxCount++;
     log("info", `rx[${rxCount}] ${d.length}B ` +
         [...d.slice(0, 8)].map(b => b.toString(16).padStart(2, "0")).join(" "));
+  }
+  if (isFragShape(d)) {
+    if (frag) {
+      frag.push(d[1], d[2]);
+      clearTimeout(fragTimer);
+      fragTimer = setTimeout(fragDone, 60);
+      return;
+    }
+    if (d[1] === 0x7D && d[2] === 0x45) {
+      frag = [d[1], d[2]];
+      fragTimer = setTimeout(fragDone, 60);
+      return;
+    }
   }
   if (d[0] !== 0xF0) return;
   if (!PFX.every((b, i) => d[i] === b)) return;   // not ours

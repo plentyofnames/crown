@@ -33,6 +33,14 @@ and the box reroutes live; **Save** persists to flash.
   in the page.
 - No build step, no dependencies — one static page.
 
+## Known issue: Chrome 152
+
+Chrome 152's macOS build corrupts *received* Web MIDI sysex (a
+MIDI 1.0 → UMP conversion regression, fixed in Chrome 153). Crown
+detects the corruption signature and reassembles the device's replies
+automatically, logging a warning — but update to Chrome 153 when it
+reaches you.
+
 ## Requirements
 
 - A **Web MIDI–capable browser**: Chrome, Edge, or Opera (Safari and
