@@ -214,13 +214,18 @@ function refreshPorts() {
   for (const [sel, ports, cur] of [[$("outSel"), midi.outputs, outPort],
                                    [$("inSel"), midi.inputs, inPort]]) {
     sel.innerHTML = "";
+    let picked = null;
     for (const p of ports.values()) {
+      // Chrome keeps ghosts of every past enumeration (each firmware
+      // reflash adds one) — a disconnected port swallows sends silently
+      if (p.state === "disconnected") continue;
       const o = document.createElement("option");
       o.value = p.id; o.textContent = (sel === $("outSel") ? "→ " : "← ") + p.name;
-      if (p.name === "Escapement USB" && !cur) o.selected = true;
-      else if (cur && p.id === cur.id) o.selected = true;
       sel.appendChild(o);
+      if (cur && p.id === cur.id) picked = p.id;
+      else if (!picked && !cur && p.name.includes("Escapement")) picked = p.id;
     }
+    if (picked) sel.value = picked;
   }
   bindPorts();
 }
