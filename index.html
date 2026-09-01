@@ -120,7 +120,7 @@
 </main>
 <script>
 "use strict";
-const BUILD = "2026-09-01f (trunk ports UI)";
+const BUILD = "2026-09-01g (auto-hello)";
 // ---------------------------------------------------------------- constants
 const PFX = [0xF0, 0x7D, 0x45, 0x53, 0x43];
 const CMD = { HELLO:0x01, GET:0x10, SET:0x11, SAVE:0x12, REVERT:0x13,
@@ -263,6 +263,12 @@ function bindPorts() {
   }
   setStatus(outPort && inPort ? `connected: ${outPort.name}` : "select ports",
             outPort && inPort ? "ok" : "");
+  // introduce ourselves: populate fw info, trunk state and jack locks
+  // without requiring a manual Hello click
+  if (outPort && inPort && !bindPorts.helloed) {
+    bindPorts.helloed = true;
+    setTimeout(() => guarded(doHello), 300);
+  }
 }
 // --- Chrome 152 workaround -------------------------------------------
 // Chrome 152's broken MIDI1->UMP/SysEx7 conversion (fixed in 153) strips
