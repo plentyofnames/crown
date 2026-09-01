@@ -110,7 +110,7 @@
 </main>
 <script>
 "use strict";
-const BUILD = "2026-09-01d (chrome-152 shim + priming)";
+const BUILD = "2026-09-01e (chrome-152 shim + priming + pad)";
 // ---------------------------------------------------------------- constants
 const PFX = [0xF0, 0x7D, 0x45, 0x53, 0x43];
 const CMD = { HELLO:0x01, GET:0x10, SET:0x11, SAVE:0x12, REVERT:0x13 };
@@ -156,7 +156,9 @@ function crc16(d) {
 const nibblize = d => d.flatMap ? d.flatMap(b => [(b >> 4) & 15, b & 15])
                                 : [...d].flatMap(b => [(b >> 4) & 15, b & 15]);
 function denibblize(n) {
-  if (n.length & 1) throw new Error("odd nibble count");
+  // replies are padded to even interior length (Chrome 152 palliative);
+  // strip a trailing odd byte rather than erroring
+  if (n.length & 1) n = n.slice(0, -1);
   const out = new Uint8Array(n.length / 2);
   for (let i = 0; i < out.length; i++)
     out[i] = ((n[2 * i] & 15) << 4) | (n[2 * i + 1] & 15);
