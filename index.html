@@ -567,6 +567,12 @@ if (!navigator.requestMIDIAccess) {
 } else {
   navigator.requestMIDIAccess({sysex: true}).then(m => {
     midi = m;
+    log("info", `sysexEnabled=${m.sysexEnabled}`);
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: "midi", sysex: true }).then(
+        st => log("info", `permission midi+sysex: ${st.state}`),
+        () => {});
+    }
     midi.onstatechange = ev => {
       if (ev.port) log("info", `statechange: ${ev.port.type} ` +
         `"${ev.port.name}" ${ev.port.state}/${ev.port.connection}`);
