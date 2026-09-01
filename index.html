@@ -238,8 +238,14 @@ function bindPorts() {
   setStatus(outPort && inPort ? `connected: ${outPort.name}` : "select ports",
             outPort && inPort ? "ok" : "");
 }
+let rxCount = 0;
 function onMidi(ev) {
   const d = ev.data;
+  if (rxCount < 30) {
+    rxCount++;
+    log("info", `rx[${rxCount}] ${d.length}B ` +
+        [...d.slice(0, 8)].map(b => b.toString(16).padStart(2, "0")).join(" "));
+  }
   if (d[0] !== 0xF0) return;
   if (!PFX.every((b, i) => d[i] === b)) return;   // not ours
   logMsg("rx", "RX", d);
@@ -549,7 +555,14 @@ if (!navigator.requestMIDIAccess) {
 } else {
   navigator.requestMIDIAccess({sysex: true}).then(m => {
     midi = m; midi.onstatechange = refreshPorts; refreshPorts();
-  }, () => setStatus("MIDI permission denied", "err"));
+    // diagnostics: show exactly what Chrome sees
+    for (const p of m.outputs.values())
+      log("info", `port out: "${p.name}" ${p.state}/${p.connection}`);
+    for (const p of m.inputs.values())
+      log("info", `port in:  "${p.name}" ${p.state}/${p.connection}`);
+    log("info", `selected out=${outPort ? outPort.name : "NONE"} ` +
+                `in=${inPort ? inPort.name : "NONE"}`);
+  }, e => setStatus("MIDI permission denied: " + e, "err"));
 }
 </script>
 </body>
