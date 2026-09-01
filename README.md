@@ -51,9 +51,10 @@ reaches you.
 
 ## Requirements
 
-- A **Web MIDI–capable browser**: Chrome, Edge, or Opera (Safari and
-  Firefox do not implement Web MIDI). Grant the SysEx permission when
-  prompted.
+- A **Web MIDI–capable browser**: Chrome/Chromium-based (Chrome, Edge,
+  Opera, Brave), or Firefox 108+ (its own MIDI backend, sysex behind a
+  site permission). Safari has no Web MIDI. Grant the SysEx permission
+  when prompted.
 - An Escapement running firmware ≥ 0.3, connected over USB
   (port name **"Escapement USB"**). Config over DIN works too — replies
   return on the paired DIN out.
