@@ -117,9 +117,14 @@ const RSP = { ACK:0x40, HELLO:0x41, NACK:0x4F, GET:0x50 };
 const ERRNAME = { 1:"bad length", 2:"bad CRC", 3:"bad magic/format",
                   4:"too many rules", 5:"bad rule field", 6:"busy",
                   7:"unknown cmd" };
-const SRCS  = ["IN 1","IN 2","IN 3","IN 4","USB","BLE","RTP"];
-const DESTS = ["OUT 1","OUT 2","OUT 3","OUT 4","OUT 5","OUT 6","OUT 7","OUT 8",
-               "USB","BLE","RTP"];
+const SRCS  = [["IN 1",0],["IN 2",1],["IN 3",2],["IN 4",3],["USB",4],
+               ["BLE",5],["RTP",6],["R-IN 1",7],["R-IN 2",8],["R-IN 3",9],
+               ["R-IN 4",10]];   // R-* = the trunk-linked second unit
+const DESTS = [["OUT 1",0],["OUT 2",1],["OUT 3",2],["OUT 4",3],["OUT 5",4],
+               ["OUT 6",5],["OUT 7",6],["OUT 8",7],["USB",8],["BLE",9],
+               ["RTP",10],["R-OUT 1",16],["R-OUT 2",17],["R-OUT 3",18],
+               ["R-OUT 4",19],["R-OUT 5",20],["R-OUT 6",21],["R-OUT 7",22],
+               ["R-OUT 8",23]];
 const CLS = [["NOTE",0x0001],["CC",0x0002],["PROG",0x0004],["PRESS",0x0008],
              ["BEND",0x0010],["SYSEX",0x0020],["CLK",0x0040],["TRAN",0x0080],
              ["SPP",0x0100],["SYSC",0x0200],["SENS",0x0400],["RST",0x0800]];
@@ -279,7 +284,7 @@ function render() {
     idx.className = "idx"; idx.textContent = (i + 1) + ".";
     row1.appendChild(idx);
     const srcSel = document.createElement("select");
-    SRCS.forEach((s, v) => srcSel.add(new Option(s, v)));
+    SRCS.forEach(([name, v]) => srcSel.add(new Option(name, v)));
     srcSel.value = r.src;
     srcSel.onchange = () => { r.src = +srcSel.value; };
     row1.appendChild(srcSel);
@@ -287,8 +292,8 @@ function render() {
     arrow.className = "arrow"; arrow.textContent = "→";
     row1.appendChild(arrow);
     const dchips = document.createElement("span"); dchips.className = "chips";
-    DESTS.forEach((d, b) => dchips.appendChild(
-      chip(d, r.dest & (1 << b), () => { r.dest ^= (1 << b); render(); })));
+    DESTS.forEach(([name, b]) => dchips.appendChild(
+      chip(name, r.dest & (1 << b), () => { r.dest ^= (1 << b); render(); })));
     row1.appendChild(dchips);
     const tools = document.createElement("span"); tools.className = "tools";
     for (const [t, fn] of [["↑", () => { if (i) { [rules[i-1], rules[i]] =
@@ -381,8 +386,9 @@ const expectAck = (r, cmd, what) => {
 async function doHello() {
   const r = await xact(CMD.HELLO);
   if (r.cmd !== RSP.HELLO) throw new Error("bad HELLO reply");
-  const [maj, min, fmt, max] = r.payload;
-  $("fwInfo").textContent = `fw ${maj}.${min} · format ${fmt} · ${max} rules`;
+  const [maj, min, fmt, max, caps] = r.payload;
+  $("fwInfo").textContent = `fw ${maj}.${min} · format ${fmt} · ${max} rules`
+    + ((caps & 1) ? " · trunk" : "");
   setStatus("device ok", "ok");
 }
 async function doGet() {
@@ -453,9 +459,10 @@ async function runTests() {
         return denibblize(r.payload).slice(0, -2); })(); } catch (e) {}
   try {
     const r = await xact(CMD.HELLO);
-    res("HELLO", r.cmd === RSP.HELLO &&
-        r.payload.join() === [0, 3, 1, 64].join(),
-        r.payload.map(b => b.toString(16)).join(" "));
+    res("HELLO", r.cmd === RSP.HELLO && r.payload[2] === 1 &&
+        r.payload[3] === 64,
+        `fw ${r.payload[0]}.${r.payload[1]}` +
+        ((r.payload[4] & 1) ? " trunk" : ""));
   } catch (e) { res("HELLO", false, e.message); }
   try {
     const sent = compile(STUDIO);
@@ -475,8 +482,8 @@ async function runTests() {
   const many = new Uint8Array(8 + 65 * 16);
   many.set([0x45, 0x53, 0x43, 1, 65, 0, 0, 0]);
   await expectNack("65 rules → 0x04", frame(CMD.SET, nibblize(withCrc(many))), 4);
-  const badSrc = Uint8Array.from(good); badSrc[8 + 8] = 7;  // trunk-reserved
-  await expectNack("src 7 (trunk) → 0x05", frame(CMD.SET, nibblize(withCrc(badSrc))), 5);
+  const badSrc = Uint8Array.from(good); badSrc[8 + 8] = 11; // out of range
+  await expectNack("src 11 → 0x05", frame(CMD.SET, nibblize(withCrc(badSrc))), 5);
   const odd = nibblize(withCrc(good)).slice(0, -1);
   await expectNack("odd nibbles → 0x01", frame(CMD.SET, odd), 1);
   await expectNack("unknown cmd → 0x07", frame(0x20, []), 7);
