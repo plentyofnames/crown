@@ -234,7 +234,19 @@ function bindPorts() {
   const newIn = midi.inputs.get($("inSel").value) || null;
   if (inPort && inPort !== newIn) inPort.onmidimessage = null;
   inPort = newIn;
-  if (inPort) inPort.onmidimessage = onMidi;
+  if (inPort) {
+    inPort.onmidimessage = onMidi;
+    // explicit open — the spec's implicit open on handler assignment is
+    // exactly the part that silently failed on at least one Chrome/macOS
+    inPort.open().then(
+      () => log("info", `in open: ${inPort.name} → ${inPort.connection}`),
+      e => log("err", `in open FAILED: ${e}`));
+  }
+  if (outPort) {
+    outPort.open().then(
+      () => log("info", `out open: ${outPort.name} → ${outPort.connection}`),
+      e => log("err", `out open FAILED: ${e}`));
+  }
   setStatus(outPort && inPort ? `connected: ${outPort.name}` : "select ports",
             outPort && inPort ? "ok" : "");
 }
@@ -554,7 +566,13 @@ if (!navigator.requestMIDIAccess) {
   setStatus("Web MIDI unavailable — use Chrome", "err");
 } else {
   navigator.requestMIDIAccess({sysex: true}).then(m => {
-    midi = m; midi.onstatechange = refreshPorts; refreshPorts();
+    midi = m;
+    midi.onstatechange = ev => {
+      if (ev.port) log("info", `statechange: ${ev.port.type} ` +
+        `"${ev.port.name}" ${ev.port.state}/${ev.port.connection}`);
+      refreshPorts();
+    };
+    refreshPorts();
     // diagnostics: show exactly what Chrome sees
     for (const p of m.outputs.values())
       log("info", `port out: "${p.name}" ${p.state}/${p.connection}`);
